@@ -410,11 +410,7 @@ GET /t
 --- config
     location /t {
         content_by_lua '
-
-            local cjson = require "cjson"
             local producer = require "resty.kafka.producer"
-            local self = {};
-
             local broker_list = {
                 { host = "$TEST_NGINX_KAFKA_HOST", port = $TEST_NGINX_KAFKA_PORT },
             }
@@ -430,11 +426,10 @@ GET /t
             local producer_config =
                 { producer_type = "async", max_retry = 1, batch_num = 1, error_handle = error_handle }
 
+            local p = producer:new(broker_list, producer_config)
+
             -- Assuming the Kafka max.request.size is set to 1MB
             local message = string.rep("a", 1024 * 1024)
-
-            local p = producer:new(broker_list, producer_config)
-            self.kafka_producer = p
 
             local offset, err = p:send("test", nil, message)
             if not offset then
