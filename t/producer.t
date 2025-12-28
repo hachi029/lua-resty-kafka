@@ -402,3 +402,53 @@ GET /t
 .*offset.*
 --- no_error_log
 [error]
+
+
+
+=== TEST 11: send over size message
+--- http_config eval: $::HttpConfig
+--- config
+    location /t {
+        content_by_lua '
+
+            local cjson = require "cjson"
+            local producer = require "resty.kafka.producer"
+            local self = {};
+
+            local broker_list = {
+                { host = "$TEST_NGINX_KAFKA_HOST", port = $TEST_NGINX_KAFKA_PORT },
+            }
+
+            local error_handle = function(topic, partition_id, message_queue, index, err, retryable)
+                if retryable and err == "MESSAGE_TOO_LARGE" then
+                    ngx.log(ngx.ERR, "retryable is expected to be false when MESSAGE_TOO_LARGE occurs")
+                else
+                    ngx.log(ngx.WARN, "kafka send err: topic=", topic, ", partition_id=", partition_id, ", index=", index, ", err=", err)
+                end
+            end
+
+            local producer_config =
+                { producer_type = "async", max_retry = 1, batch_num = 1, error_handle = error_handle }
+
+            -- Assuming the Kafka max.request.size is set to 1MB
+            local message = string.rep("a", 1024 * 1024)
+
+            local p = producer:new(broker_list, producer_config)
+            self.kafka_producer = p
+
+            local offset, err = p:send("test", nil, message)
+            if not offset then
+                ngx.say("send err:", err)
+                return
+            end
+
+            ngx.say("offset: ", tostring(offset))
+        ';
+    }
+--- ONLY
+--- request
+GET /t
+--- response_body_like
+.*offset.*
+--- no_error_log
+[error]

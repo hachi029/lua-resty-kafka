@@ -171,7 +171,7 @@ local function _send(self, broker_conf, topic_partitions)
                         err = Errors[errcode] or Errors[-1]
 
                         -- set retries according to the error list
-                        local retryable0 = retryable or err.retriable
+                        local retryable0 = err.retriable
 
                         local index = sendbuffer:err(topic, partition_id, err.msg, retryable0)
 
