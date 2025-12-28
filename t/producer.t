@@ -421,7 +421,7 @@ GET /t
 
             local error_handle = function(topic, partition_id, message_queue, index, err, retryable)
                 if retryable and err == "MESSAGE_TOO_LARGE" then
-                    ngx.log(ngx.ERR, "retryable is expected to be false when MESSAGE_TOO_LARGE occurs")
+                    ngx.log(ngx.ERR, "retryable is expected to be false when MESSAGE_TOO_LARGE error occurs")
                 else
                     ngx.log(ngx.WARN, "kafka send err: topic=", topic, ", partition_id=", partition_id, ", index=", index, ", err=", err)
                 end
@@ -445,7 +445,6 @@ GET /t
             ngx.say("offset: ", tostring(offset))
         ';
     }
---- ONLY
 --- request
 GET /t
 --- response_body_like
