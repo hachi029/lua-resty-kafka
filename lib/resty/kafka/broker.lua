@@ -16,12 +16,19 @@ local _M = {}
 local mt = { __index = _M }
 
 
+-- 发送请求，并接收响应
 local function _sock_send_recieve(sock, request)
+    -- https://github.com/openresty/lua-nginx-module?tab=readme-ov-file#tcpsocksend
+    -- The input argument data can either be a Lua string or a (nested) Lua table holding string fragments
+    -- In case of table arguments, this method will copy all the string elements piece by piece to the underlying Nginx socket send buffers,
+    -- which is usually optimal than doing string concatenation operations on the Lua land
     local bytes, err = sock:send(request:package())
     if not bytes then
         return nil, err, true
     end
 
+    -- 接收响应
+    -- 首先读取响应长度
     local len, err = sock:receive(4)
     if not len then
         if err == "timeout" then
@@ -31,6 +38,7 @@ local function _sock_send_recieve(sock, request)
         return nil, err, true
     end
 
+    -- 接收所有响应
     local data, err = sock:receive(to_int32(len))
     if not data then
         if err == "timeout" then
@@ -40,6 +48,7 @@ local function _sock_send_recieve(sock, request)
         return nil, err, true
     end
 
+    -- 构建响应体
     return response:new(data, request.api_version), nil, true
 end
 
@@ -121,14 +130,19 @@ function _M.new(self, host, port, socket_config, sasl_config)
 end
 
 
+-- producer.lua:_send -> .
+-- 发送请求并接收响应,
 function _M.send_receive(self, request)
+    -- ngx.socket.tcp
     local sock, err = tcp()
     if not sock then
         return nil, err, true
     end
 
+    -- 设置超时时间
     sock:settimeout(self.config.socket_timeout)
 
+    -- 建立连接
     local ok, err = sock:connect(self.host, self.port)
     if not ok then
         return nil, err, true
@@ -139,8 +153,10 @@ function _M.send_receive(self, request)
         return nil, "failed to get reused time: " .. tostring(err), true
     end
 
+    -- 如果是新建立的连接，且是ssl协议，则进行ssl握手
     if self.config.ssl and times == 0 then
         -- first connectted connnection
+        -- 执行ssl握手
         local ok, err = sock:sslhandshake(false, self.host,
                                           self.config.ssl_verify)
         if not ok then
@@ -150,6 +166,7 @@ function _M.send_receive(self, request)
         end
     end
 
+    -- 如果是新建立的连接，且需要认证，执行auth认证
     if self.auth and times == 0 then -- SASL AUTH
         local ok, err = sasl_auth(sock, self)
         if  not ok then
@@ -160,8 +177,10 @@ function _M.send_receive(self, request)
         end
     end
 
+    -- 发送请求并接收响应。当是网络错误时，retryable为false
     local data, err, retryable = _sock_send_recieve(sock, request)
 
+    -- 回收连接
     sock:setkeepalive(self.config.keepalive_timeout, self.config.keepalive_size)
 
     return data, err, retryable

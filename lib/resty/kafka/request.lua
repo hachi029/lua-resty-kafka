@@ -33,6 +33,7 @@ _M.API_VERSION_V1 = 1
 _M.API_VERSION_V2 = 2
 _M.API_VERSION_V3 = 3
 
+-- https://kafka.apache.org/41/design/protocol/#The_Messages_Produce
 _M.ProduceRequest = 0
 _M.FetchRequest = 1
 _M.OffsetRequest = 2
@@ -231,6 +232,7 @@ local function message_package(key, msg, message_version)
 end
 
 
+-- 将message写入到请求
 function _M.message_set(self, messages, index)
     local req = self._req
     local off = self.offset
@@ -242,6 +244,7 @@ function _M.message_set(self, messages, index)
         message_version = MESSAGE_VERSION_1
     end
 
+    -- 从1开始，直到index
     for i = 1, index, 2 do
         local crc32, str, msg_len = message_package(messages[i], messages[i + 1], message_version)
 

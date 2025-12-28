@@ -30,11 +30,14 @@ local _M = { _VERSION = "0.20" }
 local mt = { __index = _M }
 
 
+-- 获取指定topic的metadata
 local function _metadata_cache(self, topic)
     if not topic then
+        -- 返回所有
         return self.brokers, self.topic_partitions
     end
 
+    -- 从缓存中获取
     local partitions = self.topic_partitions[topic]
     if partitions and partitions.num and partitions.num > 0 then
         return self.brokers, partitions
@@ -58,6 +61,9 @@ local function metadata_encode(client_id, topics, num)
 end
 
 
+-- 解析metadata响应
+-- 返回： brokers[nodeid] = {host,port,rack}
+--       topics[topic][partition_id] = partition_info
 local function metadata_decode(resp)
     local bk_num = resp:int32()
     local brokers = new_tab(0, bk_num)
@@ -153,6 +159,8 @@ local function _fetch_api_versions(broker, client_id)
 end
 
 
+-- 获取metadata
+-- return brokers, topic_partitions, api_versions
 local function _fetch_metadata(self, new_topic)
     local topics, num = {}, 0
     for tp, _p in pairs(self.topic_partitions) do
@@ -173,6 +181,7 @@ local function _fetch_metadata(self, new_topic)
     local sc = self.socket_config
     local req = metadata_encode(self.client_id, topics, num)
 
+    -- 遍历每个broker
     for i = 1, #broker_list do
         local host, port, sasl_config = broker_list[i].host,
                                         broker_list[i].port,
@@ -180,16 +189,20 @@ local function _fetch_metadata(self, new_topic)
         host = sc.resolver and sc.resolver(host) or host
         local bk = broker:new(host, port, sc, sasl_config)
 
+        -- 向broker发送请求
         local resp, err = bk:send_receive(req)
         if not resp then
             ngx_log(INFO, "broker fetch metadata failed, err:", err,
                           ", host: ", host, ", port: ", port)
         else
+            -- brokers: {"0":{"port":9092,"host":"localhost"}}
+            -- topic_partitions: {"test":{"0":{"errcode":0,"id":0,"leader":0,"replicas":[0],"isr":[0]},"1":{"errcode":0,"id":1,"leader":0,"replicas":[0],"isr":[0]},"2":{"errcode":0,"id":2,"leader":0,"replicas":[0],"isr":[0]},"errcode":0,"num":3}}
             local brokers, topic_partitions = metadata_decode(resp)
             -- Confluent Cloud need the SASL auth on all requests, including to brokers
             -- we have been referred to. This injects the SASL auth in.
             for _, b in pairs(brokers) do
                 b.sasl_config = sasl_config
+                -- dns解析
                 b.host = sc.resolver and sc.resolver(b.host) or b.host
             end
             self.brokers, self.topic_partitions = brokers, topic_partitions
@@ -207,14 +220,19 @@ local function _fetch_metadata(self, new_topic)
         end
     end
 
+    -- 此处说明所有的broker都连接失败
     ngx_log(ERR, "all brokers failed in fetch topic metadata")
     return nil, "all brokers failed in fetch topic metadata"
 end
 
 
+-- https://github.com/hachi029/lua-resty-kafka?tab=readme-ov-file#refresh
+-- refresh the metadata of all topics which have been fetched by fetch_metadata
 _M.refresh = _fetch_metadata
 
 
+-- new() -> .
+-- 定时任务，定时刷新metadata
 local function meta_refresh(premature, self, interval)
     if premature then
         return
@@ -229,6 +247,8 @@ local function meta_refresh(premature, self, interval)
 end
 
 
+-- 只是简单设置相关配置，启动定时刷新metadata任务
+-- https://github.com/hachi029/lua-resty-kafka?tab=readme-ov-file#new
 function _M.new(self, broker_list, client_config)
     local opts = client_config or {}
     local socket_config = {
@@ -250,6 +270,7 @@ function _M.new(self, broker_list, client_config)
     }, mt)
 
     if opts.refresh_interval then
+        -- 启动定时任务，定时刷新metadata。interval 为 opts.refresh_interval
         meta_refresh(nil, cli, opts.refresh_interval / 1000) -- in ms
     end
 
@@ -257,19 +278,27 @@ function _M.new(self, broker_list, client_config)
 end
 
 
+-- https://github.com/hachi029/lua-resty-kafka?tab=readme-ov-file#fetch_metadata
+-- In case of success, return the all brokers and partitions of the topic.
+-- In case of errors, returns nil with a string describing the error.
 function _M.fetch_metadata(self, topic)
+    -- 先尝试从缓存中获取
     local brokers, partitions = _metadata_cache(self, topic)
     if brokers then
         return brokers, partitions
     end
 
+    -- 缓存中不存在，则调用api获取
     _fetch_metadata(self, topic)
 
+    -- 重新从缓存中获取
     return _metadata_cache(self, topic)
 end
 
 
+-- 根据指定topic/partition_id选择对应的leader broker
 function _M.choose_broker(self, topic, partition_id)
+    -- 获取元数据信息
     local brokers, partitions = self:fetch_metadata(topic)
     if not brokers then
         return nil, partitions
@@ -280,6 +309,7 @@ function _M.choose_broker(self, topic, partition_id)
         return nil, "not found partition"
     end
 
+    -- 找到分区对应的leader
     local config = brokers[partition.leader]
     if not config then
         return nil, "not found broker"
@@ -289,6 +319,7 @@ function _M.choose_broker(self, topic, partition_id)
 end
 
 
+-- https://github.com/hachi029/lua-resty-kafka?tab=readme-ov-file#choose_api_version
 -- select the api version to use, the maximum version will
 -- be used within the allowed range
 function _M.choose_api_version(self, api_key, min_version, max_version)
