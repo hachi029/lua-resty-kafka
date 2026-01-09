@@ -120,6 +120,7 @@ local function sasl_auth(sock, broker)
 end
 
 
+-- 只是设置元表
 function _M.new(self, host, port, socket_config, sasl_config)
     return setmetatable({
         host = host,
@@ -142,7 +143,9 @@ function _M.send_receive(self, request)
     -- 设置超时时间
     sock:settimeout(self.config.socket_timeout)
 
-    -- 建立连接
+    -- 建立连接 https://github.com/openresty/lua-nginx-module?tab=readme-ov-file#tcpsockconnect
+    -- Before actually resolving the host name and connecting to the remote backend,
+    -- this method will always look up the connection pool for matched idle connections created by previous calls of this method (or the ngx.socket.connect function).
     local ok, err = sock:connect(self.host, self.port)
     if not ok then
         return nil, err, true

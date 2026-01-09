@@ -164,6 +164,7 @@ local function _flush_lock(self)
 end
 
 
+-- 释放flush锁, self.flushing = false
 local function _flush_unlock(self)
     if debug then
         ngx_log(DEBUG, "flush lock released")
@@ -334,7 +335,7 @@ local function _flush(premature, self)
         end
     end
 
-    -- 释放flush锁
+    -- 释放flush锁, self.flushing = false
     _flush_unlock(self)
 
     -- reset _timer_flushing_buffer after flushing complete
@@ -397,6 +398,7 @@ function _M.new(self, broker_list, producer_config, cluster_name)
     -- And this only works with async producer_type
     local name = cluster_name or DEFAULT_CLUSTER_NAME
     local opts = producer_config or {}
+    -- 默认为异步模式
     local async = opts.producer_type == "async"
     -- 异步发送模式， 多集群支持
     if async and cluster_inited[name] then
@@ -421,6 +423,7 @@ function _M.new(self, broker_list, producer_config, cluster_name)
         _timer_flushing_buffer = false,
         ringbuffer = ringbuffer:new(opts.batch_num or 200, opts.max_buffering or 50000,
                 opts.wait_on_buffer_full or false, opts.wait_buffer_timeout or 5),   -- 200, 50K, flase, 5s
+        -- batch_size默认值1048576， 会导致报错 MESSAGE_TOO_LARGE
         sendbuffer = sendbuffer:new(opts.batch_num or 200, opts.batch_size or 1048576)
                         -- default: 1K, 1M
                         -- batch_size should less than (MaxRequestSize / 2 - 10KiB)
